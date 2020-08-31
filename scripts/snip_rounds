@@ -1,0 +1,44 @@
+#!/bin/bash
+
+INPUT=$1
+DEST='/home/rip/vid_project/finish/'
+if [[ -z "$INPUT" ]]
+ then
+	echo 'No input file given!'
+	exit 1
+fi
+SIFS=$IFS
+IFS=$(echo -en "\n\b")
+AMAP=''
+count=0
+for i in $(ls $INPUT | grep ^tt)
+  do
+  test $count -eq 1 && exit 0
+  echo 'take move '$i
+  	acc=1
+	cd ${INPUT}/${i}
+	pwd
+	for j in $(ls *.m4a)
+	  do
+		if [[ ${j:0:2} == "de" ]]
+		  then
+			AD="$AD -i $(pwd)/de.m4a"
+			AMAP="$AMAP -map ${acc}:0"
+			metalang="$metalang -metadata:s:a:$((acc-1)) language=ger"
+		elif [[ ${j:0:2} == "en"  ]]
+		  then
+			AD="$AD -i $(pwd)/en.m4a"
+		        AMAP="$AMAP -map ${acc}:0"
+			metalang="$metalang -metadata:s:a:$((acc-1)) language=eng"
+		fi
+		((acc++))
+	done
+	echo ffmpeg -i $(pwd)/main.m4v${AD} -vcodec copy -acodec copy -map 0:0${AMAP}${metalang} ${DEST}${i}.mp4
+	eval ffmpeg -i $(pwd)/main.m4v${AD} -vcodec copy -acodec copy -map 0:0${AMAP}${metalang} ${DEST}${i}.mp4
+	exit
+	test -e *.srt && exit 0;
+	cd -
+	((count++))
+done
+IFS=$SIFS
+exit 0

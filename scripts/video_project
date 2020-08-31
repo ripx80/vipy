@@ -1,0 +1,105 @@
+#!/bin/bash
+#---needed---#
+#need ffmpeg gpac
+#ffmpeg -i main.m4v -i de.m4a -i en.m4a -vcodec copy -acodec copy -map 0:0 -map 1:0 -map 2:0 -metadata:s:a:0 language=ger -metadata:s:a:1 language=eng tt0032553.mp4
+#TODO Subtitles???
+
+set -o errtrace
+set -o nounset
+
+#---vars---#
+FFM='/usr/bin/ffmpeg'
+MBOX='/usr/bin/MP4Box'
+FAC='/usr/bin/faac'
+P='./tmp'
+E='./results'
+AMAP=''
+ACC=1
+metalang=''
+#---trap
+
+function onexit(){
+	local exit_status=$?
+	echo "This $0 with exit status: $exit_status"
+    	exit $exit_status
+}
+
+function findmap(){
+    local EX=$1
+	MAP=$(ffmpeg -i "$INPUT" 2>&1 | grep "$EX" | sed -e 's/^[ \t]*//'| cut -f2 -d\ )
+	if [[ -z "$MAP" ]]
+	  then
+		echo 'Canot find Map'
+		exit 1
+	fi
+}
+
+trap onexit 1 2 3 15 ERR
+
+test -d $P || mkdir $P
+test -z "$1" && echo 'you must give an input file!' && exit 1
+INPUT="$1"
+FN=$(basename "$INPUT")
+FN=${FN:0:-4}
+echo "encode movie: $FN"
+echo 'Croping detection'
+CROP=$(ffmpeg -y -i "$INPUT" -vf cropdetect -t 100 -ss 600 -an -f rawvideo /dev/null 2>&1 | grep crop | tail -n1 | cut -f15 -d\ )
+test -z $CROP && echo "ERROR: Cannot Crop video" && exit 1
+echo "Croping $CROP"
+echo 'encode video stream'
+findmap Video
+MAP=${MAP:1:-1}
+VMAP="-map 0:0"
+#$FFM -y -sn -an -i "$INPUT" -map $MAP -vf $CROP -vcodec copy -y "${P}/${FN}.m4v"
+#--this is for h264
+$FFM -y -sn -an -i "$INPUT" -map $MAP -vf $CROP -c:v libx264 -preset slower -crf 18 -y "${P}/${FN}.m4v"
+#---
+echo 'encode audio stream'
+findmap Audio
+
+for i in $MAP
+  do
+        i=${i:1:-1}
+        #if [[ -n $(echo $i | grep -e 'ger\|de' ) ]]
+        if [[ ${#i} > 5 ]]
+          then
+                tm=${i:0:3}
+	  	metalang="$metalang -metadata:s:a:$((${tm:2}-1)) language=${i:4:-1}"
+		i=$tm
+        fi
+	c=${i:2}
+	ext=$(ffmpeg -i "$INPUT" 2>&1 | grep -e 'mp3\|acc\|ogg' | grep 'Audio' | sed -e 's/^[ \t]*//' | cut -f4 -d\ )
+
+	if [[ -z "$ext" ]] 
+	  then
+	  	echo 'convert the audio to aac'
+        	$FFM -i "$INPUT" -map $i -acodec pcm_s16le -ar 44100 -ac 2 -vn -y ${P}/${c}.wav
+		cd $P
+	        $FAC -w ${c}.wav
+		cd -
+	else
+		echo 'copy the audio file'
+        	$FFM -i "$INPUT" -map $i -acodec copy -vn -y ${P}/${c}.${ext}
+	fi
+	AMAP="$AMAP-map ${ACC}:0 "
+	((ACC++))
+done
+if [[ $ACC<3 ]]
+  then
+	metalang='-metadata:s:a:0 language=ger'
+fi
+cd $P
+com='$FFM -i "${FN}.m4v"'
+for i in $(ls [1-9].*)
+  do
+	com=${com}" -i $i"
+done
+com=${com}' -vcodec copy -acodec copy -metadata title="${FN}" $VMAP $AMAP $metalang "${FN}.mp4"'
+eval $com
+mv "${FN}.mp4" ../results
+#--clean up--#
+cd -
+rm ./tmp/*
+chmod 444 "${E}/${FN}.mp4"
+
+exit 0
